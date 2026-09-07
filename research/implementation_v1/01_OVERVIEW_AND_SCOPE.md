@@ -58,7 +58,18 @@ grain. See `07B` §6.
 | Business rule | Hand-written, human-reviewed predicates | P2 |
 | Unvalidated | Declared, never executed; exists so coverage is honest | **P0** |
 
-P0 ships in M3, P1 in M4, P2 in M5 (see `15`).
+**The priority letters order work *within* a milestone; they do not map onto one.** The actual
+build order (`15`) is:
+
+| Family | Milestone |
+|---|---|
+| Key / grain, `unvalidated` + the coverage view | M1 → M2 |
+| The 11-check SCD suite | **M2** |
+| L2 dedup contract, L3 layer parity, and the conservation / fanout / domain / FK templates the hop bundles pull in | **M2B** |
+| Cast health and the L1 families | M5 (Lane B) |
+| Hand-written business rules | Per project, after M2B — not on a milestone |
+
+M3 and M4 add no check families; they add deterministic reporting and then the reporting agent.
 
 ### 3.2 Lane B (RDS ↔ Snowflake) — the L1 hop
 
@@ -133,6 +144,8 @@ The SCD suite **and** all three medallion hops running on one real pipeline, on 
 | Runs reporting column exclusions | 100% |
 | Checks with human-confirmed grain | 100% |
 | Lane A precision (incidents confirmed real) | > 70% at launch |
+| Root-cause accuracy — predicted category vs. the category a human confirmed on close | > 60% at launch, improving |
+| Monitoring cost per pipeline per month | Below the cost of one incident |
 | Lane A alerts per engineer per week | < 5 |
 | Onboarding cost, project two vs. project one | ≤ 25% |
 

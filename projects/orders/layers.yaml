@@ -1,0 +1,82 @@
+# The medallion hop contracts (07B §2). The agent proposes; a human confirms the dedup
+# key, the pick rule, and the mart group_by — the three decisions that, if wrong, produce
+# a check that passes while comparing nothing.
+layers:
+  bronze: {database: ANALYTICS, schema: BRONZE}
+  silver: {database: ANALYTICS, schema: SILVER}
+  gold: {database: ANALYTICS, schema: GOLD}
+
+hops:
+  # ── L1: source -> bronze. Lane B, the only cross-engine hop ────────────────
+  - id: l1_customers
+    hop: source_to_bronze
+    lane: B
+    source: public.customers
+    target: ANALYTICS.BRONZE.CUSTOMERS
+    relation: identical                  # bronze is a faithful landing
+    key: [CUSTOMER_ID]
+    expect_duplicates: true              # bronze keeps source duplicates as-is
+    declared_losses: []                  # nothing may be dropped at L1
+    transforms_ref: [drop_legacy_notes, filter_test_accounts]
+
+  # ── L2: bronze -> silver. THE dedup contract ───────────────────────────────
+  - id: l2_customers
+    hop: bronze_to_silver
+    lane: A
+    source: ANALYTICS.BRONZE.CUSTOMERS
+    target: ANALYTICS.SILVER.CUSTOMERS
+    relation: dedup_of
+    dedup:
+      key: [CUSTOMER_ID]
+      key_confirmed_by: null             # <- human confirmation required (07B §6.3)
+      pick_rule:
+        order_by:
+          - {column: SOURCE_UPDATED_AT, direction: desc, nulls: last}
+          - {column: SOURCE_ROW_ID, direction: desc, nulls: last}   # tiebreaker
+        must_be_total: true              # the ordering must resolve every tie
+      compare_columns: business
+    declared_losses:
+      - {name: dedup_collapse, kind: dedup}       # COMPUTED, not asserted (07B §4.4)
+      - name: rejected
+        kind: reject_table
+        table: ANALYTICS.SILVER.CUSTOMERS_REJECT
+        reason_column: REJECT_REASON
+        allowed_reasons: [NULL_BUSINESS_KEY, CAST_FAILED, FAILED_DOMAIN_RULE]
+      - {name: filtered_test_accounts, kind: filter, predicate: "IS_TEST = true"}
+    strict_conservation: true
+
+  # ── L3: silver -> gold ─────────────────────────────────────────────────────
+  - id: l3_dim_customer
+    hop: silver_to_gold
+    lane: A
+    source: ANALYTICS.SILVER.CUSTOMERS
+    target: ANALYTICS.GOLD.DIM_CUSTOMER
+    relation: scd2_of                    # -> the full 11-check SCD suite plus hop checks
+    key: [CUSTOMER_ID]
+
+  - id: l3_fct_order
+    hop: silver_to_gold
+    lane: A
+    source: ANALYTICS.SILVER.ORDERS
+    target: ANALYTICS.GOLD.FCT_ORDER
+    relation: conserved
+    key: [ORDER_ID]
+    fanout_max: 1                        # >1 means a join multiplied rows
+    measures:
+      - {column: AMOUNT, source_column: AMOUNT, additive: true, tolerance: {abs: 0.01}}
+
+  - id: l3_mart_daily_revenue
+    hop: silver_to_gold
+    lane: A
+    source: ANALYTICS.SILVER.ORDERS
+    target: ANALYTICS.GOLD.MART_DAILY_REVENUE
+    relation: aggregate_of
+    group_by: [ORDER_DATE, COUNTRY]
+    group_by_confirmed_by: null          # <- grain confirmation, same class as SCD grain
+    measures:
+      - {column: REVENUE, expr: "sum(AMOUNT)", additive: true, tolerance: {abs: 0.01}}
+      - {column: ORDER_COUNT, expr: "count(*)", additive: true}
+      # Declared non-additive: cannot be recomputed by summation, so reported as
+      # unverified at the measure level rather than silently shown green (07B §5.3).
+      - {column: AVG_BASKET, expr: "avg(AMOUNT)", additive: false}
+      - {column: UNIQUE_BUYERS, expr: "count(distinct CUSTOMER_ID)", additive: false}

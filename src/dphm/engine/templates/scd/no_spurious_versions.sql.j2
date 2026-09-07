@@ -1,0 +1,23 @@
+-- SCD 6: a new version exists only if a TRACKED column changed.
+-- Catches churn — a new row on every load.
+-- {{ tracked_columns }} excludes audit/ETL columns by construction (column_rules.yaml).
+with versions as (
+    select
+        {{ business_key | join(", ") }},
+        {{ valid_from }} as valid_from,
+        {% for c in tracked_columns %}{{ c }},
+        {% endfor %}
+        {% for c in tracked_columns %}
+        lag({{ c }}) over (partition by {{ business_key | join(", ") }} order by {{ valid_from }}) as prev_{{ c }}{{ "," if not loop.last }}
+        {% endfor %}
+    from {{ table }}
+    where {{ scope_predicate }}
+)
+select
+    object_construct({% for k in business_key %}'{{ k }}', {{ k }}{{ "," if not loop.last }}{% endfor %}) as failing_key,
+    'SCD_SPURIOUS_VERSION' as violation_code,
+    object_construct('valid_from', valid_from) as detail
+from versions
+where prev_{{ tracked_columns[0] }} is not null
+  and not ({% for c in tracked_columns %}{{ c }} is distinct from prev_{{ c }}{{ " or " if not loop.last }}{% endfor %})
+limit {{ sample_limit }}

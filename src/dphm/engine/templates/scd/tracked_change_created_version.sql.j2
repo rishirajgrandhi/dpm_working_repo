@@ -1,0 +1,44 @@
+-- SCD 7: a tracked change DID create a new version.
+--
+-- THE check the product exists for. If a tracked column differs between the current
+-- dimension row and the latest staged row, and no new version was opened, the pipeline
+-- is overwriting history instead of versioning it. Every other check stays green.
+with current_dim as (
+    select {{ business_key | join(", ") }},
+           {% for c in tracked_columns %}{{ c }},{% endfor %}
+           {{ valid_from }} as valid_from
+    from {{ table }}
+    where {{ scope_predicate }}
+      and {{ is_current }} = true
+),
+latest_stage as (
+    select {{ business_key | join(", ") }},
+           {% for c in tracked_columns %}{{ c }},{% endfor %}
+           {{ stage_loaded_at }} as staged_at,
+           row_number() over (
+               partition by {{ business_key | join(", ") }}
+               order by {{ stage_loaded_at }} desc
+           ) as rn
+    from {{ stage_table }}
+    where {{ stage_scope_predicate }}
+)
+select
+    object_construct({% for k in business_key %}'{{ k }}', d.{{ k }}{{ "," if not loop.last }}{% endfor %}) as failing_key,
+    'SCD_OVERWRITE_INSTEAD_OF_VERSION' as violation_code,
+    object_construct(
+        'changed_columns', array_construct_compact(
+            {% for c in tracked_columns %}
+            iff(d.{{ c }} is distinct from s.{{ c }}, '{{ c }}', null){{ "," if not loop.last }}
+            {% endfor %}
+        ),
+        'dim_valid_from', d.valid_from,
+        'stage_loaded_at', s.staged_at
+    ) as detail
+from current_dim d
+join latest_stage s
+  on {% for k in business_key %}d.{{ k }} = s.{{ k }}{{ " and " if not loop.last }}{% endfor %}
+ and s.rn = 1
+where ({% for c in tracked_columns %}d.{{ c }} is distinct from s.{{ c }}{{ " or " if not loop.last }}{% endfor %})
+  -- a genuine change should have opened a version AFTER the source row landed
+  and d.valid_from <= s.staged_at
+limit {{ sample_limit }}

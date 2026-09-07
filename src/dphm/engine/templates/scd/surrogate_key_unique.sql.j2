@@ -1,0 +1,10 @@
+-- SCD 9: the surrogate key is globally unique and never NULL. Catches broken fact joins.
+select
+    object_construct('{{ surrogate_key }}', {{ surrogate_key }}) as failing_key,
+    'SCD_SK_DUPLICATE' as violation_code,
+    object_construct('occurrences', count(*)) as detail
+from {{ table }}
+where {{ scope_predicate }}
+group by {{ surrogate_key }}
+having count(*) > 1 or {{ surrogate_key }} is null
+limit {{ sample_limit }}

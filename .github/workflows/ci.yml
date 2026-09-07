@@ -1,0 +1,135 @@
+# CI gates from 14 §1. The blocking ones are marked; they are blocking because the
+# product's central claim depends on them.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [master, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  static:
+    name: lint · types · import contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e ".[dev,agents,reporting]"
+      - name: ruff (lint)
+        run: ruff check src tests
+      - name: ruff (format)
+        run: ruff format --check src tests
+      - name: mypy --strict
+        run: mypy
+      # 04 §2 rule 1: langchain/langgraph may be imported ONLY under agents/. This is the
+      # trust boundary — the framework must not creep into the deterministic core.
+      - name: import contracts
+        run: lint-imports
+
+  unit:
+    name: unit · SQL snapshots · agent graphs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e ".[dev,agents,reporting]"
+      - name: unit tests
+        run: pytest tests/unit -q --cov=dphm --cov-report=term-missing
+      # 09 §3, 14 §6: no authoring run may log ROW_VALUES_SENT = true. During authoring
+      # the LLM sees metadata only — never row values. This is an absolute rule.
+      - name: egress gate (no row values sent during authoring)
+        run: pytest tests -q -k "egress" --no-header
+
+  integration:
+    name: integration (postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: orders_prod
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: integration tests
+        run: pytest tests -q -m integration
+        env:
+          DPHM_RDS_HOST: localhost
+          DPHM_RDS_USER: postgres
+          DPHM_RDS_PASSWORD: postgres
+
+  mutation:
+    name: mutation gate (BLOCKING — gate 3)
+    runs-on: ubuntu-latest
+    # 10: "a check that can never fail is worse than no check at all." Mutation testing
+    # is the one metric with a 100% target and it is a blocking merge gate. It needs a
+    # Snowflake test account, so it is skipped — loudly — until those credentials exist
+    # (Q1). It must never be silently green.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: mutation tests
+        if: ${{ env.SNOWFLAKE_ACCOUNT != '' }}
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+        run: pytest tests -q -m mutation
+      - name: report the gate as unmet when credentials are absent
+        if: ${{ env.SNOWFLAKE_ACCOUNT == '' }}
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+        run: |
+          echo "::warning title=Mutation gate not run::No Snowflake test account configured (Q1)."
+          echo "Gate 3 is unverified. No check may be activated until this job runs green (10)."
+
+  web:
+    name: web · generated client drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev]"
+      - run: npm ci --prefix web || npm install --prefix web
+      - name: typecheck
+        run: npm run typecheck --prefix web
+      - name: build
+        run: npm run build --prefix web
+      # 04 rule 5 / 14 §6b: the API and the UI cannot drift silently. CI regenerates the
+      # TypeScript types from the OpenAPI schema and fails if they differ from what is
+      # committed.
+      - name: generated types are up to date
+        run: |
+          python -m dphm.api.export_openapi > /tmp/openapi.json
+          npm run gen:api --prefix web -- --input /tmp/openapi.json
+          git diff --exit-code web/src/api/ \
+            || (echo "::error::Generated API types are stale. Run 'npm run gen:api' and commit." && exit 1)

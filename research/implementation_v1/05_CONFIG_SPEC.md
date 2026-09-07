@@ -173,6 +173,12 @@ tables:
       tracked_columns: [NAME, SEGMENT, COUNTRY, CREDIT_LIMIT]   # type-2: change → new version
       type1_columns: [PHONE, EMAIL]                              # overwrite in place, no new version
       open_end_sentinel: "9999-12-31"
+      # Upstream truth for SCD check 7 (06 §3.4) — the only SCD check that compares against
+      # anything outside the dimension. Still single-engine, still Lane A.
+      # When the dimension is the gold end of an L3 scd2_of hop, this defaults to that hop's
+      # silver source and check 7 IS L3.D2 (07B §5.1) — declare it only to override.
+      stage_table: ANALYTICS.SILVER.CUSTOMERS
+      stage_loaded_at: SOURCE_UPDATED_AT
     lane_b: exact_match
 
   - name: ANALYTICS.PROD.FCT_ORDER
@@ -299,6 +305,11 @@ class SCD2Spec(BaseModel):
     tracked_columns: list[str] = Field(min_length=1)
     type1_columns: list[str] = []
     open_end_sentinel: str | None = None
+    # Check 7 (06 §3.4) — the check the product exists for — needs an upstream table to
+    # compare the current dimension row against. Resolved from the L3 hop's silver source
+    # when the table is the gold end of an scd2_of hop; declared here otherwise.
+    stage_table: str | None = None
+    stage_loaded_at: str | None = None
 
     @model_validator(mode="after")
     def keys_distinct(self):
@@ -336,6 +347,15 @@ class TableSpec(BaseModel):
     def activatable(self) -> bool:
         """B3/R4: a check on an unconfirmed grain may pass while comparing nothing."""
         return self.grain_confirmed_by is not None
+
+    @model_validator(mode="after")
+    def scd2_stage_resolvable(self):
+        # An scd2 table with no stage_table and no scd2_of hop to inherit one from cannot
+        # generate check 7. Emit the other ten and one `unvalidated` coverage row for check 7
+        # rather than silently shipping a ten-check suite that looks complete.
+        if self.table_type == "scd2" and self.scd2 and not self.scd2.stage_table:
+            self._check7_unvalidated = True     # surfaced in COVERAGE, never dropped
+        return self
 ```
 
 The layer contract models (`HopSpec`, `DedupContract`, `PickRule`, `DeclaredLoss`, `MeasureMap`)

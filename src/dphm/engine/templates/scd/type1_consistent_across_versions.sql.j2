@@ -1,0 +1,15 @@
+-- SCD 8: type-1 columns are identical across all versions of a key.
+-- Catches a type-1 update applied to only the current row.
+select
+    object_construct({% for k in business_key %}'{{ k }}', {{ k }}{{ "," if not loop.last }}{% endfor %}) as failing_key,
+    'SCD_TYPE1_INCONSISTENT' as violation_code,
+    object_construct(
+        {% for c in type1_columns %}
+        '{{ c }}_distinct', count(distinct {{ c }}){{ "," if not loop.last }}
+        {% endfor %}
+    ) as detail
+from {{ table }}
+where {{ scope_predicate }}
+group by {{ business_key | join(", ") }}
+having {% for c in type1_columns %}count(distinct {{ c }}) > 1{{ " or " if not loop.last }}{% endfor %}
+limit {{ sample_limit }}

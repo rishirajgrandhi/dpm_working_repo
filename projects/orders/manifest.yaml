@@ -1,0 +1,57 @@
+# Proposed by the authoring agent; `grain` and `table_type: scd2` require an explicit
+# human confirmation recorded with a name and timestamp (05 §3, assumptions B2/B3, risk R4).
+tables:
+  - name: ANALYTICS.GOLD.DIM_CUSTOMER
+    table_type: scd2
+    source_table: public.customers
+    grain: [CUSTOMER_ID, VALID_FROM]
+    grain_confirmed_by: null             # <- blocks activation of its checks until confirmed
+    scd2:
+      business_key: [CUSTOMER_ID]
+      surrogate_key: CUSTOMER_SK
+      valid_from: VALID_FROM
+      valid_to: VALID_TO
+      is_current: IS_CURRENT
+      tracked_columns: [NAME, SEGMENT, COUNTRY, CREDIT_LIMIT]
+      type1_columns: [PHONE, EMAIL]
+      open_end_sentinel: "9999-12-31"
+      # Upstream truth for SCD check 7 — inherited from the l3_dim_customer hop's silver
+      # source. Declared explicitly here so the parameter resolution is visible in review.
+      stage_table: ANALYTICS.SILVER.CUSTOMERS
+      stage_loaded_at: SOURCE_UPDATED_AT
+    lane_b: exact_match
+
+  - name: ANALYTICS.SILVER.CUSTOMERS
+    table_type: scd1
+    grain: [CUSTOMER_ID]
+    grain_confirmed_by: null
+    lane_b: unvalidated
+
+  - name: ANALYTICS.BRONZE.CUSTOMERS
+    table_type: raw
+    source_table: public.customers
+    grain: [CUSTOMER_ID, SOURCE_ROW_ID]  # bronze keeps duplicates; the grain reflects that
+    grain_confirmed_by: null
+    lane_b: exact_match
+
+  - name: ANALYTICS.GOLD.FCT_ORDER
+    table_type: fact
+    source_table: public.orders
+    grain: [ORDER_ID]
+    grain_confirmed_by: null
+    foreign_keys:
+      - column: CUSTOMER_SK
+        references: ANALYTICS.GOLD.DIM_CUSTOMER.CUSTOMER_SK
+    lane_b: exact_match
+
+  - name: ANALYTICS.SILVER.ORDERS
+    table_type: scd1
+    grain: [ORDER_ID]
+    grain_confirmed_by: null
+    lane_b: unvalidated
+
+  - name: ANALYTICS.GOLD.MART_DAILY_REVENUE
+    table_type: mart
+    grain: [ORDER_DATE, COUNTRY]
+    grain_confirmed_by: null             # <- blocks activation
+    lane_b: unvalidated                  # no RDS counterpart; reported as uncovered

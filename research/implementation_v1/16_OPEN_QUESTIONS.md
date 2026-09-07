@@ -3,6 +3,37 @@
 Ordered by when the answer is needed. Each says what we do if there is no answer, so nothing here
 blocks a start — but the first block genuinely shapes the build.
 
+## Block 0 — Scope reconciliation (needed before M0, and it may reshape M0)
+
+`../PARITY_SCOPE.md`, `../final_idea/`'s design doc, and this directory describe **three different
+environments**, and nothing on record says which one is real or when it changed. The parent design
+doc is the *narrowest* of the three — intra-Snowflake, single-engine — so the RDS→Snowflake premise
+at the top of `00_README` was introduced here, not inherited. Everything in Block 1 assumes the answer to Q0a is
+"the RDS→Snowflake picture in these docs." If it is not, M0's foundations are wrong, not just
+incomplete — so this block is genuinely first.
+
+`PARITY_SCOPE.md` describes: API sources (Ringside, Tradable Bits, …) landing into a Snowflake
+medallion, **plus a legacy RDS + dbt-on-Redshift estate being re-implemented in Snowflake.** It
+calls the legacy↔new family (its **F4**) "ultimately the key" and the hardest, and devotes its
+longest section to it. **None of F4 exists in these v1 docs**: no Redshift, no legacy↔new object
+mapping, no `equivalent_to` relation, no migration readiness scorecard, no `expected_differences`
+register. Nor does its **F1**: v1's L1 assumes a *queryable* RDS source, while `PARITY_SCOPE.md`
+§4 argues at length that an API source has no queryable reference and needs raw-payload retention
+or ingestion-manifest reconciliation instead.
+
+| # | Question | Default if unanswered | Cost of the default being wrong |
+|---|---|---|---|
+| ~~Q0a~~ | ~~Which environment is real?~~ | **ANSWERED 2026-09-02: (a) RDS → Snowflake only.** The legacy Redshift/dbt estate in `PARITY_SCOPE.md` is **not** in this environment. Build exactly to these docs | — |
+| ~~Q0b~~ | ~~Is legacy↔new parity in v1?~~ | **Moot** — Q0a settled it. `PARITY_SCOPE.md`'s F4 family, the `equivalent_to` relation, and the migration readiness scorecard are **out of scope**, and `PARITY_SCOPE.md` should be read as opportunity-space research, not as a requirement | — |
+| **Q0c** | Are any monitored sources non-queryable APIs? | Assume not — every source is queryable RDS | v1's L1 has no reference to compare against. The fix (raw-payload retention in the extractor) is upstream of us and has its own lead time — `PARITY_SCOPE.md` §10.1 calls it "the first task" |
+| ~~Q0d~~ | ~~Where is the parent design doc?~~ | **RESOLVED 2026-09-02** — it is in the repo at the cited path, and every citation in `00_README`, `09`, `11`, `13` checks out (§2.7 = "Handling expected differences", §5 = metadata-only authoring, "14 of 20 risks structural, R8 not" all verified) | — |
+| **Q0e** | The design doc is **intra-Snowflake** (its A2: "both sources being compared live in the same engine"; "the initial implementation is being planned with snowflake as the warehousing Platform"). It **defers cross-engine comparison entirely**, and says that if a second engine appears we would **borrow** a diff engine, not build one. `02` D2 records A2 as false but still builds Lane B in-house, in v1, as M5. Is that reversal endorsed? | Proceed as `02` D2 says — build the tiered comparison narrowly | This is a real reversal of the design doc's build-vs-borrow call on the single most expensive component in v1, and it is **not currently listed as a deviation** in `02`. Now added as **D5**. If borrowing (e.g. Datafold data-diff, as `../SCOPE.md` §13 recommends) is still preferred, M5 shrinks substantially |
+
+**Q0a is answered, so M0 is unblocked.** Q0c and Q0e remain: Q0c is cheap and upstream of us,
+Q0e would visibly shrink M5. Neither blocks M0's foundations, because every engine touchpoint sits
+behind the `Dialect` and `CatalogReader` protocols — a third engine, if one ever appears, is an
+additive implementation rather than a redesign.
+
 ## Block 1 — Needed before M0
 
 | # | Question | Default if unanswered | Cost of the default being wrong |
@@ -76,6 +107,8 @@ blocks a start — but the first block genuinely shapes the build.
 | "Earliest failing layer" is computed from the hop DAG, not inferred by the LLM | One upstream break must produce one incident, and that should be structural |
 | Jira assigns to the team queue; the author is only mentioned | Auto-assignment reads as blame, and our evidence is correlational |
 | PR gate is non-blocking in v1 | "No blocking a deploy without buy-in" — a design-doc principle |
+| **Scope is RDS → Snowflake only.** No Redshift, no legacy↔new parity, no API-sourced ingestion. `../PARITY_SCOPE.md` is opportunity-space research, not requirements | Confirmed 2026-09-02 (Q0a). Keeps Lane B to one hop and one dialect pair |
+| **RDS is PostgreSQL 13+** | Confirmed 2026-09-02 (Q3). MySQL stays a `Dialect` implementation nobody has written |
 | **The entire user surface is a web app; there is no CLI** | The review queue is the critical path, and the domain expert who owns the grain answer will click a link, not run a command. See `02` D4 |
 | FastAPI + React now, not Streamlit first | Once the dashboard is the whole surface — forms, approvals, RBAC, live progress — Streamlit is a rewrite we would do anyway |
 | Structural changes go through a git PR; operational actions write to state | Keeps "every AI output is a reviewable artifact" true even with a UI in front of it |

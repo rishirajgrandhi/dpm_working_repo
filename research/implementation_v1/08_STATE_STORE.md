@@ -14,6 +14,16 @@ Both owned by `DPHM_WRITER`, which has no grants anywhere else.
 -- state/ddl.sql  (forward-only, applied by state/migrate.py)
 create schema if not exists DPHM_STATE;
 
+-- ── Migration ledger (read by state/migrate.py before anything else) ──────
+create table if not exists DPHM_STATE.SCHEMA_MIGRATIONS (
+    VERSION      number(6,0)  not null primary key,   -- forward-only, numbered
+    FILENAME     string       not null,
+    CHECKSUM     string       not null,               -- refuse to re-apply an edited migration
+    APPLIED_AT   timestamp_ntz not null,
+    APPLIED_BY   string       not null,               -- tool version + role
+    DURATION_MS  number(18,0)
+);
+
 -- ── Runs ──────────────────────────────────────────────────────────────────
 create table if not exists DPHM_STATE.RUNS (
     RUN_ID              string       not null primary key,   -- ULID
@@ -137,6 +147,23 @@ create table if not exists DPHM_STATE.SCD_VERSION_HASHES (
     CONTENT_HASH   string not null,
     FIRST_SEEN_RUN string not null,
     FIRST_SEEN_AT  timestamp_ntz not null
+);
+
+-- ── Golden windows — the believed-correct scope gate 2 validates against ──
+-- Required by validation gate 2 (`10`). Without a row here a check cannot pass gate 2,
+-- and therefore cannot be activated.
+create table if not exists DPHM_STATE.GOLDEN_WINDOWS (
+    WINDOW_ID       string       not null primary key,
+    PROJECT         string       not null,
+    TABLE_NAME      string       not null,
+    SCOPE_PREDICATE string       not null,   -- the exact batch range being vouched for
+    FROM_TS         timestamp_ntz,
+    TO_TS           timestamp_ntz,
+    VOUCHED_BY      string,                  -- a real person via SSO, or NULL if inferred
+    INFERRED        boolean      not null default false,  -- Q12 default: last 7 incident-free days
+    REASON          string       not null,
+    SUPERSEDED_BY   string,                  -- window ids are never edited, only superseded
+    CREATED_AT      timestamp_ntz not null
 );
 
 -- ── Coverage snapshot, per run ────────────────────────────────────────────
@@ -281,6 +308,7 @@ if they fail, and the Settings diagnostics panel shows the current level.
 | What did we send to the LLM? | `LLM_EGRESS_LOG` for the run |
 | Is our precision holding? | `FEEDBACK` joined to `INCIDENTS` |
 | What is waiting on a human? | `REVIEW_ITEMS where STATUS='PENDING'` |
+| What scope did we vouch for, and who vouched? | `GOLDEN_WINDOWS where SUPERSEDED_BY is null` |
 | Who triggered this, and who confirmed that? | `JOBS.SUBMITTED_BY`, `REVIEW_ITEMS.ANSWERED_BY` |
 
 The web app's screens are exactly these queries and nothing more. The frontend computes nothing —

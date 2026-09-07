@@ -1,0 +1,11 @@
+-- L2.8: every rejected row carries a reason from the CLOSED set.
+-- Catches a silent catch-all reject bucket nobody reads.
+select
+    object_construct('{{ reason_column }}', {{ reason_column }}) as failing_key,
+    'L2_UNKNOWN_REJECT_REASON' as violation_code,
+    object_construct('rows', count(*), 'allowed', '{{ allowed_reasons | join(", ") }}') as detail
+from {{ reject_table }}
+where {{ reason_column }} is null
+   or {{ reason_column }} not in ({% for r in allowed_reasons %}'{{ r }}'{{ "," if not loop.last }}{% endfor %})
+group by {{ reason_column }}
+limit {{ sample_limit }}

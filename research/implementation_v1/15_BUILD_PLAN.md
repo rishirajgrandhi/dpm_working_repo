@@ -175,8 +175,9 @@ entirely, M3 still catches the motivating bug and reports it to the right team.
 
 ## M6 — Authoring agent (LangGraph)
 
-- The authoring graph, including the `interrupt()` for grain confirmation and SQLite
-  checkpointing.
+- The authoring graph, including the `interrupt()` for grain confirmation and `SnowflakeSaver`
+  checkpointing over `DPHM_STATE.GRAPH_CHECKPOINTS` — never a container-local SQLite file, or the
+  restart exit criterion below cannot be met (`09` §1.3).
 - The layer-contract nodes: `infer_layer_map`, `infer_dedup_contract`, `classify_losses`,
   `infer_measure_map` — producing `layers.yaml` for human confirmation.
 - The **Review Queue** screen and `REVIEW_ITEMS`: proposals with their evidence, answered by a

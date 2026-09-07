@@ -1,0 +1,10 @@
+-- The declared grain is actually unique. Runs on every table with a confirmed grain.
+select
+    object_construct({% for k in grain %}'{{ k }}', {{ k }}{{ "," if not loop.last }}{% endfor %}) as failing_key,
+    'GRAIN_NOT_UNIQUE' as violation_code,
+    object_construct('occurrences', count(*)) as detail
+from {{ table }}
+where {{ scope_predicate }}
+group by {{ grain | join(", ") }}
+having count(*) > 1
+limit {{ sample_limit }}

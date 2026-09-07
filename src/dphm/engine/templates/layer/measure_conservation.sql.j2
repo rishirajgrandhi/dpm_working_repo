@@ -1,0 +1,25 @@
+-- L3.F4: additive measures survive the hop within tolerance.
+-- Catches precision loss, double-counting, and a wrong join.
+with totals as (
+    select
+        {% for m in measures %}
+        (select sum({{ m.source_column }}) from {{ source_table }}
+         where {{ source_scope_predicate }}) as src_{{ m.column }},
+        (select sum({{ m.column }}) from {{ target_table }}
+         where {{ target_scope_predicate }}) as tgt_{{ m.column }}{{ "," if not loop.last }}
+        {% endfor %}
+)
+select
+    object_construct('hop', '{{ hop_id }}') as failing_key,
+    'L3_MEASURE_MISMATCH' as violation_code,
+    object_construct(
+        {% for m in measures %}
+        '{{ m.column }}', object_construct('source', src_{{ m.column }}, 'target', tgt_{{ m.column }}){{ "," if not loop.last }}
+        {% endfor %}
+    ) as detail
+from totals
+where false
+  {% for m in measures %}
+  or abs(coalesce(src_{{ m.column }}, 0) - coalesce(tgt_{{ m.column }}, 0))
+     > greatest({{ m.abs_tol }}, {{ m.rel_tol }} * abs(coalesce(src_{{ m.column }}, 0)))
+  {% endfor %}

@@ -1,0 +1,22 @@
+# Every entry is a claim that a difference is intentional. Bound to a commit SHA, and it
+# EXPIRES when that code changes (05 §4, design doc §2.7).
+transforms:
+  - id: drop_legacy_notes
+    source_table: public.customers
+    target_table: ANALYTICS.BRONZE.CUSTOMERS
+    kind: column_dropped
+    columns: [LEGACY_NOTES]
+    reason: "Deprecated at cutover; product signed off 2026-08-11"
+    declared_by: "sam@acme.com"
+    commit_sha: 3ab77e1
+    expires_on_change_of: ["sql/transforms/dim_customer.sql"]
+
+  - id: filter_test_accounts
+    source_table: public.customers
+    target_table: ANALYTICS.BRONZE.CUSTOMERS
+    kind: row_filter
+    source_predicate: "is_test = false"
+    reason: "Test accounts excluded from the warehouse"
+    declared_by: "sam@acme.com"
+    commit_sha: 3ab77e1
+    expires_on_change_of: ["sql/transforms/dim_customer.sql"]

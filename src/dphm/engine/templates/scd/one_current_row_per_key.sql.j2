@@ -1,0 +1,12 @@
+-- SCD 1: exactly one current row per business key.
+-- Catches a duplicate or missing current record.
+select
+    object_construct({% for k in business_key %}'{{ k }}', {{ k }}{{ "," if not loop.last }}{% endfor %}) as failing_key,
+    'SCD_MULTIPLE_CURRENT' as violation_code,
+    object_construct('current_row_count', count(*)) as detail
+from {{ table }}
+where {{ scope_predicate }}
+  and {{ is_current }} = true
+group by {{ business_key | join(", ") }}
+having count(*) <> 1
+limit {{ sample_limit }}

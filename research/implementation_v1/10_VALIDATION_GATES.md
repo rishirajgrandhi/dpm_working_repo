@@ -31,7 +31,11 @@ measured cost, so a human can decide whether it is worth a bigger warehouse.
 
 ```
 Run against a "golden" scope: a batch range a human has marked as believed-correct
-(recorded in DPHM_STATE as a golden window per table, set during onboarding).
+(a row in `DPHM_STATE.GOLDEN_WINDOWS`, set during onboarding — see `08`).
+No golden window for the table means the gate cannot run, so the check stays `draft`
+and the gate result records `NO_GOLDEN_WINDOW` rather than passing by default.
+An `INFERRED` window (the Q12 fallback: the most recent 7 incident-free days) is
+allowed, and every gate result says which kind it used.
 Pass if:  0 violations returned, AND evaluated_row_count >= tolerance.min_rows_to_evaluate
 ```
 

@@ -1,0 +1,22 @@
+-- L2.6: the pick rule resolves every tie.
+--
+-- If two bronze rows tie on the FULL ordering, the surviving row is arbitrary and the
+-- pipeline returns different data on every rerun. Nothing is wrong with the data; the
+-- CONTRACT is under-specified. The remedy is a tiebreaker column.
+select
+    object_construct({% for k in dedup_key %}'{{ k }}', {{ k }}{{ "," if not loop.last }}{% endfor %}) as failing_key,
+    'L2_PICK_RULE_NOT_TOTAL' as violation_code,
+    object_construct('tied_rows', tied, 'order_by', '{{ pick_order_by }}') as detail
+from (
+    select
+        {{ dedup_key | join(", ") }},
+        count(*) as tied
+    -- Aliased `src` because the loss predicate's correlated subqueries reference the
+    -- outer table by that name. Every template receiving loss_filter_predicate must do
+    -- this; a test enforces it.
+    from {{ bronze_table }} src
+    where {{ bronze_scope_predicate }} {{ loss_filter_predicate }}
+    group by {{ dedup_key | join(", ") }}, {{ pick_order_columns | join(", ") }}
+    having count(*) > 1
+)
+limit {{ sample_limit }}

@@ -1,0 +1,29 @@
+# The single most important file for a useful first run (05 §2). Audit columns included
+# by mistake make every row look different — risk R1.
+classification:
+  key:
+    - "*_ID"
+    - "*_KEY"
+    - "*_CODE"
+  audit:                                 # EXCLUDED BY DEFAULT from comparison
+    - "_LOADED_AT"
+    - "_UPDATED_AT"
+    - "ETL_*"
+    - "DW_*"
+    - "*_BATCH_ID"
+    - "INSERTED_AT"
+    - "SOURCE_FILE*"
+    - "_FIVETRAN_*"
+    - "_AIRBYTE_*"
+  derived:                               # compared only if declared
+    - "*_FLAG_DERIVED"
+    - "*_SCORE"
+  # anything unmatched defaults to `business` and IS compared
+
+overrides:
+  ANALYTICS.GOLD.DIM_CUSTOMER:
+    CUSTOMER_ID: key
+    CUSTOMER_SK: key
+    UPDATED_AT: business                 # genuinely business-meaningful here, not audit
+    EMAIL: {class: business, pii: true, compare: hash}
+    SSN: {class: business, pii: true, compare: hash, redact_in_reports: true}

@@ -1,0 +1,17 @@
+-- L3.D1: every source business key has a current dimension row.
+-- Catches keys dropped between the source and the dimension.
+--
+-- Declared losses are subtracted from the source side: a row deliberately filtered or
+-- rejected upstream is not a missing dimension key, and reporting it as one is the
+-- chronic false alarm that gets a monitoring tool switched off.
+select
+    object_construct({% for k in key %}'{{ k }}', src.{{ k }}{{ "," if not loop.last }}{% endfor %}) as failing_key,
+    'L3_DIM_KEY_MISSING' as violation_code,
+    object_construct('present_in_gold', false) as detail
+from {{ source_table }} src
+left join (select {{ key | join(", ") }} from {{ dim_table }} where {{ is_current }} = true) d
+  on {% for k in key %}src.{{ k }} = d.{{ k }}{{ " and " if not loop.last }}{% endfor %}
+where {{ source_scope_predicate }}
+  {{ loss_filter_predicate }}
+  and d.{{ key[0] }} is null
+limit {{ sample_limit }}

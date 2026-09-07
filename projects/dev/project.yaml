@@ -1,0 +1,89 @@
+# The DEV project: points at the live DPHM_TEST fixture in Snowflake.
+#
+# This is what makes the diagnostics panel show real data rather than placeholders.
+# `projects/orders/` remains the documentation example from 05 §1.
+project: dev
+
+owner:
+  team: "@data-platform"
+  slack_channel: "#dpl-dev-alerts"
+  shadow_channel: "#dpl-dev-shadow"
+  jira_project: null
+  go_live: false                         # shadow mode. Nothing is ever filed from dev.
+
+# INPUT 2 — no RDS yet, so Lane B is unavailable and reports as such. The integration
+# tests use an embedded PostgreSQL; this is the placeholder until a real source exists.
+source:
+  kind: postgres
+  host: ${DPHM_RDS_HOST}
+  port: 5432
+  database: orders_prod
+  user: ${DPHM_RDS_USER}
+  password: ${DPHM_RDS_PASSWORD}
+  schemas: [public]
+  read_only: true
+  statement_timeout_s: 120
+  max_rows_per_query: 5000000
+
+# INPUT 3 — the live Snowflake sandbox.
+target:
+  kind: snowflake
+  account: ${DPHM_SF_ACCOUNT}
+  user: ${DPHM_SF_USER}
+  authenticator: snowflake_jwt
+  private_key_path: ${DPHM_SF_KEY_PATH}
+  role_reader: DPHM_DEV
+  # A genuinely separate writer, provisioned by scripts/provision_dev_roles.py. Collapsing
+  # the two in dev would mean the thing being tested is not the thing that ships — and
+  # config/models.py refuses it anyway.
+  role_writer: DPHM_DEV_WRITER
+  warehouse: DPHM_TEST_WH
+  database: DPHM_TEST
+  schemas: [BRONZE, SILVER, GOLD]
+  state_schema: DPHM_STATE
+  scratch_schema: DPHM_SCRATCH
+  query_timeout_s: 300
+
+# INPUT 1 — this repo, until the real pipeline repo is available (Q5).
+repo:
+  url: https://github.com/rishirajgrandhi/dpm_working_repo.git
+  branch: master
+  auth_env: DPHM_GIT_TOKEN
+  paths:
+    transforms: [tests/fixtures]
+    ddl: [src/dphm/state]
+    orchestration: []
+  codeowners: .github/CODEOWNERS
+
+# The fixture's control table. Batch 3 is deliberately RUNNING, so a scheduled check
+# must not read it (risk R2).
+batch:
+  strategy: control_table
+  control_table: DPHM_TEST.BRONZE.ETL_BATCH_LOG
+  batch_id_column: BATCH_ID
+  status_column: STATUS
+  completed_value: SUCCESS
+  completed_at_column: COMPLETED_AT
+  lookback_hours: 8760                   # the fixture data is dated Aug 2026
+
+defaults:
+  numeric_scale: 6
+  float_abs_tolerance: 1.0e-9
+  float_rel_tolerance: 1.0e-9
+  timestamp_granularity: second
+  null_equals_null: true
+  string_trim: false
+  string_case_fold: false
+
+budgets:
+  lane_a_warehouse_seconds_per_run: 300
+  lane_b_usd_per_run: 1.00               # low: the dev warehouse is capped at 10 credits
+  lane_b_rds_seconds_per_run: 60
+  llm_usd_per_run: 0.50
+
+llm:
+  provider: anthropic
+  model: claude-sonnet-5
+  model_escalated: claude-opus-5
+  temperature: 0
+  max_retries: 3

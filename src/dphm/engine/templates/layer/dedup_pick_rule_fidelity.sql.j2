@@ -1,0 +1,44 @@
+-- L2.5: the RIGHT duplicate survived.
+--
+-- The whole hop's correctness in one statement: recompute the declared pick from bronze
+-- and assert silver holds exactly that row. A dedup that keeps AN arbitrary row per key
+-- passes every counting check while returning different data on every rerun.
+with expected as (
+    select
+        {{ dedup_key | join(", ") }},
+        {% for c in compare_columns %}{{ c }},{% endfor %}
+        row_number() over (
+            partition by {{ dedup_key | join(", ") }}
+            order by {{ pick_order_by }}
+        ) as rn
+    -- Aliased `src` so the loss predicate's correlated subqueries can reference the
+    -- OUTER table. Unqualified, Snowflake binds the name to the inner table instead.
+    from {{ bronze_table }} src
+    where {{ bronze_scope_predicate }} {{ loss_filter_predicate }}
+),
+picked as (
+    select * from expected where rn = 1
+)
+select
+    object_construct({% for k in dedup_key %}'{{ k }}', coalesce(s.{{ k }}, p.{{ k }}){{ "," if not loop.last }}{% endfor %}) as failing_key,
+    case
+        when p.{{ dedup_key[0] }} is null then 'L2_SILVER_ROW_NOT_IN_BRONZE'
+        when s.{{ dedup_key[0] }} is null then 'L2_PICKED_ROW_MISSING_FROM_SILVER'
+        else 'L2_WRONG_DUPLICATE_KEPT'
+    end as violation_code,
+    object_construct(
+        'differing_columns', array_construct_compact(
+            {% for c in compare_columns %}
+            iff(s.{{ c }} is distinct from p.{{ c }}, '{{ c }}', null){{ "," if not loop.last }}
+            {% endfor %}
+        )
+    ) as detail
+from {{ silver_table }} s
+full outer join picked p
+  on {% for k in dedup_key %}s.{{ k }} = p.{{ k }}{{ " and " if not loop.last }}{% endfor %}
+where s.{{ dedup_key[0] }} is null
+   or p.{{ dedup_key[0] }} is null
+   {% for c in compare_columns %}
+   or s.{{ c }} is distinct from p.{{ c }}
+   {% endfor %}
+limit {{ sample_limit }}

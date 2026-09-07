@@ -1,0 +1,33 @@
+-- Conservation: every input row is accounted for, and every loss is NAMED.
+--
+-- dedup_collapse is COMPUTED from the declared dedup key, not asserted. If the key is
+-- wrong the equation does not close and this fires — rather than absorbing the error into
+-- a fudge term. A conservation check with an unconstrained slack term can never fail.
+with counts as (
+    select
+        (select count(*) from {{ input_table }} where {{ input_scope_predicate }}) as input_rows,
+        (select count(*) from {{ output_table }} where {{ output_scope_predicate }}) as kept_rows,
+        {% for loss in declared_losses %}
+        ({{ loss.count_expr }}) as loss_{{ loss.name }},
+        {% endfor %}
+        {% if dedup_key %}
+        (select count(*) - count(distinct {{ dedup_key | join(", ") }})
+         from {{ input_table }} src
+         where {{ input_scope_predicate }} {{ loss_filter_predicate }}) as loss_dedup_collapse
+        {% else %}
+        0 as loss_dedup_collapse
+        {% endif %}
+)
+select
+    object_construct('hop', '{{ hop_id }}') as failing_key,
+    'UNEXPLAINED_ROW_LOSS' as violation_code,
+    object_construct(
+        'input', input_rows, 'kept', kept_rows,
+        {% for loss in declared_losses %}'{{ loss.name }}', loss_{{ loss.name }},{% endfor %}
+        'dedup_collapse', loss_dedup_collapse,
+        'unexplained', input_rows - kept_rows - loss_dedup_collapse
+                       {% for loss in declared_losses %} - loss_{{ loss.name }}{% endfor %}
+    ) as detail
+from counts
+where input_rows - kept_rows - loss_dedup_collapse
+      {% for loss in declared_losses %} - loss_{{ loss.name }}{% endfor %} <> 0

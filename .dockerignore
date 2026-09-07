@@ -1,0 +1,11 @@
+.venv/
+.git/
+research/
+node_modules/
+web/dist/
+__pycache__/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+tests/

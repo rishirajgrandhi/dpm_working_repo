@@ -1,0 +1,10 @@
+-- L2.1: the dedup actually happened. Catches duplicates surviving into silver.
+select
+    object_construct({% for k in dedup_key %}'{{ k }}', {{ k }}{{ "," if not loop.last }}{% endfor %}) as failing_key,
+    'L2_DUPLICATE_SURVIVED_DEDUP' as violation_code,
+    object_construct('surviving_rows', count(*)) as detail
+from {{ silver_table }}
+where {{ scope_predicate }}
+group by {{ dedup_key | join(", ") }}
+having count(*) > 1
+limit {{ sample_limit }}

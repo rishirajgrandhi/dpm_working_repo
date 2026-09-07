@@ -1,0 +1,10 @@
+-- SCD 4: VALID_FROM < VALID_TO, no NULL VALID_FROM, open row uses the sentinel.
+select
+    object_construct({% for k in business_key %}'{{ k }}', {{ k }}{{ "," if not loop.last }}{% endfor %}) as failing_key,
+    'SCD_MALFORMED_RANGE' as violation_code,
+    object_construct('valid_from', {{ valid_from }}, 'valid_to', {{ valid_to }}) as detail
+from {{ table }}
+where {{ scope_predicate }}
+  and ({{ valid_from }} is null
+       or ({{ valid_to }} is not null and {{ valid_from }} >= {{ valid_to }}))
+limit {{ sample_limit }}

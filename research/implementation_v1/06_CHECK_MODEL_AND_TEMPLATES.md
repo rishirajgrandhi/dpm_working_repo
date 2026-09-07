@@ -273,6 +273,7 @@ follow the same uniform contract — return violating rows, zero rows is a pass.
 | `layer/dedup_key_unique` | L2 | No duplicate survived |
 | `layer/dedup_pick_rule_fidelity` | L2 | The *right* duplicate survived |
 | `layer/dedup_pick_rule_total` | L2 | The pick rule resolves every tie |
+| `layer/dedup_value_fidelity` | L2 | The surviving row's business columns match its bronze original |
 | `layer/no_invented_keys` · `layer/no_lost_keys` | L2 | Silver ⊆ bronze, and nothing vanishes unnamed |
 | `layer/reject_reasons_closed` | L2 | Every reject carries a reason from a closed set |
 | `layer/dim_key_coverage` · `layer/dim_matches_silver` | L3 | Gold dimensions agree with silver |

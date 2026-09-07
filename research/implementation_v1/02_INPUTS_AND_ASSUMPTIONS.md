@@ -52,7 +52,7 @@ startup, and re-asserted in CI.
 
 ## 2. Deviations from the design document
 
-These are the four places v1 knowingly departs from the design doc. Each is a deliberate call.
+These are the five places v1 knowingly departs from the design doc. Each is a deliberate call.
 
 ### D1 — Agent framework: LangChain / LangGraph instead of the raw Anthropic SDK
 
@@ -91,6 +91,33 @@ v1's answer is to *contain* it rather than build a general cross-engine diff eng
 - Hashing therefore **does** come back, but only as a bucket fingerprint over a canonicalized
   projection, plus the design doc's original use (closed SCD versions never change). Full spec
   and canonicalization rules in `07`.
+
+### D5 — We *build* the cross-engine comparison; the design doc said *borrow*
+
+D2 above records that assumption A2 is false. It does not record the second half of what the
+design doc says about that case, and the omission matters. The full A2 consequence reads:
+
+> "Cross-engine work re-enters scope — hashing, canonicalization, **a borrowed diff engine**.
+> Substantially more work."
+
+And §3's build-vs-borrow paragraph is explicit:
+
+> "We **skip cross-engine hash diffing entirely**, and would **borrow an existing tool** if a
+> second engine ever shows up."
+
+§4.2 then lists "cross-engine comparison and all hashing logic" as **deferred**, "only if a
+genuinely different engine becomes a source, and even then we'd borrow rather than build."
+
+v1 does the opposite on both counts: it brings the deferred item into scope as M5, and it builds
+the three-tier comparison in-house (`07`). The reasoning for building is sound as far as it goes —
+we need per-column attribution against a *declared transform set*, and a general diff tool does
+not know about `transforms.yaml` — but it is a reversal of a recorded position on the most
+expensive component in v1, and `../SCOPE.md` §13 independently recommends borrowing here
+("reimplementing hierarchical hashing across dialects is weeks of subtle work").
+
+**This deviation was not previously written down.** It is tracked as **Q0e in `16`** rather than
+being treated as settled, because unlike D1–D4 it has not been argued anywhere and it is the one
+whose reversal would visibly shrink the plan.
 
 ### D3 — Migration-shaped semantics
 

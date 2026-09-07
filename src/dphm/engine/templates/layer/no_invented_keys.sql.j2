@@ -1,0 +1,12 @@
+-- L2.2: silver has no keys that bronze does not. Catches a fanout or a bad backfill.
+select
+    object_construct({% for k in dedup_key %}'{{ k }}', s.{{ k }}{{ "," if not loop.last }}{% endfor %}) as failing_key,
+    'L2_SILVER_ROW_NOT_IN_BRONZE' as violation_code,
+    object_construct('present_in_bronze', false) as detail
+from {{ silver_table }} s
+left join (select distinct {{ dedup_key | join(", ") }} from {{ bronze_table }}
+           where {{ bronze_scope_predicate }}) b
+  on {% for k in dedup_key %}s.{{ k }} = b.{{ k }}{{ " and " if not loop.last }}{% endfor %}
+where {{ scope_predicate }}
+  and b.{{ dedup_key[0] }} is null
+limit {{ sample_limit }}

@@ -1,0 +1,73 @@
+# The live fixture, as the tool sees it. Grain is UNCONFIRMED throughout, which is the
+# honest state: no human has vouched for any of it yet, so no check can activate (B3/R4).
+tables:
+  - name: DPHM_TEST.BRONZE.CUSTOMERS
+    table_type: raw
+    grain: [CUSTOMER_ID, SOURCE_ROW_ID]  # bronze keeps duplicates; the grain says so
+    grain_confirmed_by: "aparandkar@accelerize360.com"
+    grain_confirmed_at: "2026-09-07T12:45:00Z"
+    lane_b: unvalidated                  # no RDS counterpart yet
+
+  - name: DPHM_TEST.BRONZE.ORDERS
+    table_type: raw
+    grain: [ORDER_ID]
+    grain_confirmed_by: "aparandkar@accelerize360.com"
+    grain_confirmed_at: "2026-09-07T12:45:00Z"
+    lane_b: unvalidated
+
+  - name: DPHM_TEST.SILVER.CUSTOMERS
+    table_type: scd1
+    grain: [CUSTOMER_ID]
+    grain_confirmed_by: "aparandkar@accelerize360.com"
+    grain_confirmed_at: "2026-09-07T12:45:00Z"
+    lane_b: unvalidated
+
+  - name: DPHM_TEST.SILVER.ORDERS
+    table_type: scd1
+    grain: [ORDER_ID]
+    grain_confirmed_by: "aparandkar@accelerize360.com"
+    grain_confirmed_at: "2026-09-07T12:45:00Z"
+    lane_b: unvalidated
+
+  - name: DPHM_TEST.GOLD.DIM_CUSTOMER
+    table_type: scd2
+    grain: [CUSTOMER_ID, VALID_FROM]
+    grain_confirmed_by: "aparandkar@accelerize360.com"
+    grain_confirmed_at: "2026-09-07T12:45:00Z"
+    scd2:
+      business_key: [CUSTOMER_ID]
+      surrogate_key: CUSTOMER_SK
+      valid_from: VALID_FROM
+      valid_to: VALID_TO
+      is_current: IS_CURRENT
+      tracked_columns: [NAME, SEGMENT, COUNTRY, CREDIT_LIMIT]
+      type1_columns: [PHONE, EMAIL]
+      open_end_sentinel: "9999-12-31"
+      stage_table: DPHM_TEST.BRONZE.CUSTOMERS
+      stage_loaded_at: SOURCE_UPDATED_AT
+    lane_b: unvalidated
+
+  - name: DPHM_TEST.GOLD.FCT_ORDER
+    table_type: fact
+    grain: [ORDER_ID]
+    grain_confirmed_by: "aparandkar@accelerize360.com"
+    grain_confirmed_at: "2026-09-07T12:45:00Z"
+    foreign_keys:
+      - column: CUSTOMER_SK
+        references: DPHM_TEST.GOLD.DIM_CUSTOMER.CUSTOMER_SK
+    lane_b: unvalidated
+
+  - name: DPHM_TEST.GOLD.MART_DAILY_REVENUE
+    table_type: mart
+    grain: [ORDER_DATE, COUNTRY]
+    grain_confirmed_by: "aparandkar@accelerize360.com"
+    grain_confirmed_at: "2026-09-07T12:45:00Z"
+    lane_b: unvalidated
+
+  # No silver counterpart. Reported as unvalidated rather than quietly omitted.
+  - name: DPHM_TEST.GOLD.MART_CHURN
+    table_type: mart
+    grain: [ORDER_DATE]
+    grain_confirmed_by: "aparandkar@accelerize360.com"
+    grain_confirmed_at: "2026-09-07T12:45:00Z"
+    lane_b: unvalidated

@@ -1,0 +1,23 @@
+-- SCD 2: validity ranges per key never overlap.
+-- Catches double-counting in as-of joins.
+with versions as (
+    select
+        {{ business_key | join(", ") }},
+        {{ valid_from }} as valid_from,
+        coalesce({{ valid_to }}, '{{ open_end_sentinel }}'::timestamp_ntz) as valid_to,
+        lead({{ valid_from }}) over (
+            partition by {{ business_key | join(", ") }}
+            order by {{ valid_from }}
+        ) as next_valid_from
+    from {{ table }}
+    where {{ scope_predicate }}
+)
+select
+    object_construct({% for k in business_key %}'{{ k }}', {{ k }}{{ "," if not loop.last }}{% endfor %}) as failing_key,
+    'SCD_OVERLAPPING_RANGE' as violation_code,
+    object_construct('valid_from', valid_from, 'valid_to', valid_to,
+                     'next_valid_from', next_valid_from) as detail
+from versions
+where next_valid_from is not null
+  and next_valid_from < valid_to
+limit {{ sample_limit }}

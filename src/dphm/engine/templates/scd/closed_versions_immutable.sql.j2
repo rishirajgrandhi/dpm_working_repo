@@ -1,0 +1,37 @@
+-- SCD 11: a closed version's content hash never changes between runs.
+--
+-- The only surviving use of hashing in Lane A: there is no second table to compare
+-- against, so the hash is recorded on first sight and compared thereafter.
+--
+-- A version with NO recorded baseline is not a violation — it is a first sighting. An
+-- earlier version of this template emitted every closed row as a violation, which is the
+-- "check that fires on everything" failure mode: just as useless as one that can never
+-- fire, and it trains people to ignore the alert.
+with current_hashes as (
+    select
+        {{ surrogate_key }} as surrogate_key,
+        {{ valid_to }} as valid_to,
+        sha2(concat_ws('||',
+            {% for c in compared_columns %}
+            coalesce(to_varchar({{ c }}), '<NULL>'){{ "," if not loop.last }}
+            {% endfor %}
+        ), 256) as content_hash
+    from {{ table }}
+    where {{ scope_predicate }}
+      and {{ valid_to }} < '{{ open_end_sentinel }}'::timestamp_ntz
+)
+select
+    object_construct('{{ surrogate_key }}', c.surrogate_key) as failing_key,
+    'SCD_CLOSED_VERSION_MUTATED' as violation_code,
+    object_construct(
+        'recorded_hash', b.CONTENT_HASH,
+        'current_hash', c.content_hash,
+        'first_seen_run', b.FIRST_SEEN_RUN,
+        'valid_to', c.valid_to
+    ) as detail
+from current_hashes c
+join {{ baseline_table }} b
+  on b.TABLE_NAME = '{{ table }}'
+ and b.SURROGATE_KEY = to_varchar(c.surrogate_key)
+where b.CONTENT_HASH <> c.content_hash
+limit {{ sample_limit }}

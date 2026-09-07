@@ -177,6 +177,12 @@ def build_authoring_graph(cfg) -> StateGraph:
     g.add_node("classify_tables",  classify_tables)       # LLM
     g.add_node("classify_columns", classify_columns)      # LLM
     g.add_node("propose_grain",    propose_grain)         # LLM (escalated)
+    # layer-contract nodes (07B §6.2) — these produce layers.yaml
+    g.add_node("infer_layer_map",       infer_layer_map)        # LLM
+    g.add_node("infer_dedup_contract",  infer_dedup_contract)   # LLM (escalated), seeded by
+                                                                #   repo/dedup_extract.py
+    g.add_node("classify_losses",       classify_losses)        # LLM
+    g.add_node("infer_measure_map",     infer_measure_map)      # LLM
     g.add_node("confirm_with_human", confirm_with_human)  # interrupt
     g.add_node("expand_manifest",  expand_manifest)       # deterministic
     g.add_node("generate_checks",  generate_checks)       # LLM
@@ -189,7 +195,12 @@ def build_authoring_graph(cfg) -> StateGraph:
     g.add_edge("ingest_repo", "classify_tables")
     g.add_edge("classify_tables", "classify_columns")
     g.add_edge("classify_columns", "propose_grain")
-    g.add_edge("propose_grain", "confirm_with_human")
+    g.add_edge("propose_grain", "infer_layer_map")
+    g.add_edge("infer_layer_map", "infer_dedup_contract")
+    g.add_edge("infer_dedup_contract", "classify_losses")
+    g.add_edge("classify_losses", "infer_measure_map")
+    # one interrupt raises every confirmation at once — grain, dedup key, pick rule, mart grain
+    g.add_edge("infer_measure_map", "confirm_with_human")
     g.add_edge("confirm_with_human", "expand_manifest")
     g.add_edge("expand_manifest", "generate_checks")
     g.add_edge("generate_checks", "run_gates")

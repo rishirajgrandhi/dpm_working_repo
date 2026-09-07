@@ -75,12 +75,18 @@ dphm/
 │   │   ├── tier2_land.py          # land suspect key ranges into DPHM_SCRATCH
 │   │   ├── diff.py                # full-outer-join diff SQL, column attribution
 │   │   └── budget.py              # cost accounting and abort switch
+│   ├── warehouse/
+│   │   └── connection.py          # connectors + the DPHM_WRITER allowlist (rule 6 below).
+│   │                              #   Sits BELOW catalog/ and state/ because both need it;
+│   │                              #   leaving it in state/ made catalog/ import upward and
+│   │                              #   broke the layering contract.
 │   ├── state/
 │   │   ├── ddl.sql                # DPHM_STATE schema (see 08)
 │   │   ├── migrate.py             # forward-only numbered migrations
 │   │   ├── repo.py                # typed read/write API over the state tables
 │   │   ├── incidents.py           # fingerprinting, dedup, lifecycle
 │   │   ├── signoff.py             # commit-bound sign-offs and expiry
+│   │   ├── checkpointer.py        # SnowflakeSaver: LangGraph checkpoints in DPHM_STATE (09 §1.3)
 │   │   └── permissions.py         # grant fingerprint at startup
 │   ├── evidence/
 │   │   ├── collect.py             # orchestrates the collectors below
@@ -134,7 +140,8 @@ web (TypeScript) ──HTTP──▶ api ──▶ runtime ──▶ agents ─�
                             │         │           │                      ▲
                             └─────────┴──▶ engine ┴──▶ parity ───────────┘
                                              │
-                                             └──▶ config, util   (leaf layers, import nothing above)
+                                             └──▶ warehouse ──▶ config, util
+                                                  (lower layers, import nothing above)
 ```
 
 Hard rules:
@@ -165,7 +172,7 @@ and raises unless a writer connection is requested from an allow-listed module p
 | Templating | `jinja2` | Templates read like reviewable SQL |
 | Git | `GitPython` | Clone, log, blame |
 | Agents | `langgraph`, `langchain-core`, `langchain-anthropic` | Pinned; see below |
-| Checkpointing | `langgraph-checkpoint-sqlite` | Local resumable onboarding runs |
+| Checkpointing | `langgraph-checkpoint` + `state/checkpointer.py` | `SnowflakeSaver` over `DPHM_STATE.GRAPH_CHECKPOINTS`. **Not** the SQLite saver: an onboarding run pauses days at the human interrupt and must survive a redeploy, so checkpoints cannot live on a container's disk (`09` §1.3) |
 | Reporting | `slack-sdk`, `httpx` (Jira/GitHub REST) | |
 | Frontend | React 18, TypeScript, Vite, TanStack Query, Tailwind, Radix, Recharts | The entire user surface (`12`) |
 | Logging | `structlog` | JSON, run-scoped |

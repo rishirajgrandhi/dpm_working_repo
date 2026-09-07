@@ -1,0 +1,37 @@
+-- L3.M3: recompute the mart from silver and compare group by group.
+--
+-- The check is a SECOND IMPLEMENTATION, which is what makes it meaningful.
+-- Non-additive measures ({{ non_additive | join(", ") }}) are deliberately excluded and
+-- reported as unverified — a mart shown green with silently unverified measures is the
+-- exact lie of omission this product exists to end.
+with recomputed as (
+    select {{ group_by | join(", ") }},
+           {% for m in additive_measures %}
+           {{ m.expr }} as {{ m.column }}{{ "," if not loop.last }}
+           {% endfor %}
+    from {{ source_table }}
+    where {{ source_scope_predicate }}
+    group by {{ group_by | join(", ") }}
+)
+select
+    object_construct({% for g in group_by %}'{{ g }}', coalesce(m.{{ g }}, r.{{ g }}){{ "," if not loop.last }}{% endfor %}) as failing_key,
+    case
+        when m.{{ group_by[0] }} is null then 'L3_GROUP_MISSING_IN_MART'
+        when r.{{ group_by[0] }} is null then 'L3_GROUP_NOT_IN_SOURCE'
+        else 'L3_MEASURE_MISMATCH'
+    end as violation_code,
+    object_construct(
+        {% for m in additive_measures %}
+        '{{ m.column }}', object_construct('mart', m.{{ m.column }}, 'recomputed', r.{{ m.column }}){{ "," if not loop.last }}
+        {% endfor %}
+    ) as detail
+from {{ mart_table }} m
+full outer join recomputed r
+  on {% for g in group_by %}m.{{ g }} = r.{{ g }}{{ " and " if not loop.last }}{% endfor %}
+where m.{{ group_by[0] }} is null
+   or r.{{ group_by[0] }} is null
+   {% for m in additive_measures %}
+   or abs(coalesce(m.{{ m.column }}, 0) - coalesce(r.{{ m.column }}, 0))
+      > greatest({{ m.abs_tol }}, {{ m.rel_tol }} * abs(coalesce(r.{{ m.column }}, 0)))
+   {% endfor %}
+limit {{ sample_limit }}

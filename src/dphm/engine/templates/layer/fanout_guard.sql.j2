@@ -1,0 +1,11 @@
+-- Output rows per input key must not exceed the declared bound.
+-- Catches an accidental many-to-many join.
+select
+    object_construct({% for k in key %}'{{ k }}', {{ k }}{{ "," if not loop.last }}{% endfor %}) as failing_key,
+    'L3_FANOUT_EXCEEDED' as violation_code,
+    object_construct('rows_per_key', count(*), 'max_allowed', {{ fanout_max }}) as detail
+from {{ target_table }}
+where {{ scope_predicate }}
+group by {{ key | join(", ") }}
+having count(*) > {{ fanout_max }}
+limit {{ sample_limit }}

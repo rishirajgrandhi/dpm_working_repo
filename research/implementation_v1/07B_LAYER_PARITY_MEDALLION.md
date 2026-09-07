@@ -186,7 +186,8 @@ This is the hop with an explicit initial condition, so it gets the most checks. 
 > Silver is bronze, deduplicated on `dedup.key` by a **total, deterministic** pick rule, minus
 > **named** losses.
 
-Everything below follows from that sentence. Nine checks per L2 hop.
+Everything below follows from that sentence. Nine checks per L2 hop, from ten templates —
+L2.9 is two (`domain/not_null` and `domain/value_in_range`).
 
 | # | Check | Asserts | Catches |
 |---|---|---|---|
@@ -196,7 +197,7 @@ Everything below follows from that sentence. Nine checks per L2 hop.
 | **L2.4** | Conservation: `bronze = silver + rejects + filtered + dedup_collapse` | The arithmetic closes | Unexplained loss — the dangerous kind |
 | **L2.5** | **Pick-rule fidelity**: the surviving row *is* the row the declared rule selects | The right duplicate won | **Dedup picking an arbitrary row — green on every other check** |
 | **L2.6** | **Pick-rule totality**: no unresolved ties | The rule is deterministic | A non-deterministic pick that changes on every rerun |
-| **L2.7** | Value fidelity: the surviving row's business columns match its bronze original | Dedup did not also transform | A "cleanup" smuggled into the dedup step |
+| **L2.7** | Value fidelity (`layer/dedup_value_fidelity`): the surviving row's business columns match its bronze original | Dedup did not also transform | A "cleanup" smuggled into the dedup step |
 | **L2.8** | Every rejected row carries a reason from the closed set | Rejects are explained | A silent catch-all reject bucket |
 | **L2.9** | Domain and NOT NULL on silver business columns | Cleaning did what it claimed | Nulls introduced by a failed cast |
 
@@ -268,6 +269,30 @@ where s.{{ dedup_key[0] }} is null
    {% endfor %}
 limit {{ sample_limit }}
 ```
+
+**Disambiguating the third branch.** "Silver's row differs from the picked row" has two distinct
+causes, and they are different tickets: the dedup kept a *different duplicate*, or the dedup
+*altered* the row it kept. Split them on whether the silver row matches **any** bronze row for
+that key:
+
+```sql
+    case
+        when p.{{ dedup_key[0] }} is null then 'L2_SILVER_ROW_NOT_IN_BRONZE'
+        when s.{{ dedup_key[0] }} is null then 'L2_PICKED_ROW_MISSING_FROM_SILVER'
+        when exists (                                   -- silver's values ARE some bronze row's,
+            select 1 from {{ bronze_table }} b          --   just not the one the rule picks
+            where {% for k in dedup_key %}b.{{ k }} = s.{{ k }} and {% endfor %}
+                  {% for c in compare_columns %}b.{{ c }} is not distinct from s.{{ c }}
+                  {{ "and " if not loop.last }}{% endfor %}
+              and {{ bronze_scope_predicate }}
+        ) then 'L2_WRONG_DUPLICATE_KEPT'
+        else 'L2_SURVIVING_ROW_VALUE_MISMATCH'          -- matches no bronze row: dedup transformed it
+    end as violation_code,
+```
+
+Without this split, the pick-rule injector and the value-fidelity injector produce the same code,
+and gate 3's anti-cheat #2 (`10`) cannot tell "the wrong duplicate won" from "the dedup rewrote
+the row" — two failures with different owners and different fixes.
 
 This single check subsumes L2.2, L2.5 and L2.7 when it runs. The narrower checks still exist
 because they are far cheaper and they name the failure precisely — L2.1 tells you "duplicates
@@ -497,8 +522,8 @@ HOP_CHECK_BUNDLES: dict[str, list[str]] = {
                     "parity/full_outer_diff", "cast/cast_failure_rate",
                     "layer/duplicate_profile_preserved", "layer/batch_immutable"],
     "dedup_of":    ["layer/dedup_key_unique", "layer/dedup_pick_rule_fidelity",
-                    "layer/dedup_pick_rule_total", "layer/row_conservation",
-                    "layer/no_invented_keys", "layer/no_lost_keys",
+                    "layer/dedup_pick_rule_total", "layer/dedup_value_fidelity",
+                    "layer/row_conservation", "layer/no_invented_keys", "layer/no_lost_keys",
                     "layer/reject_reasons_closed", "domain/not_null", "domain/value_in_range"],
     "scd2_of":     SCD_SUITE_TEMPLATES + ["layer/dim_key_coverage", "layer/dim_matches_silver"],
     "conserved":   ["keys/grain_unique", "fanout/join_fanout_guard", "layer/row_conservation",
@@ -543,7 +568,7 @@ missing.
 | L2.4 conservation | Delete N silver rows without a reject entry | `L2_UNEXPLAINED_ROW_LOSS` |
 | **L2.5 pick-rule fidelity** | **Replace the surviving row with a different duplicate from the same key** | `L2_WRONG_DUPLICATE_KEPT` |
 | **L2.6 pick-rule totality** | **Duplicate a bronze row so it ties on the full ordering** | `L2_PICK_RULE_NOT_TOTAL` |
-| L2.7 value fidelity | Alter one business column on a surviving silver row | `L2_WRONG_DUPLICATE_KEPT` |
+| L2.7 value fidelity | Alter one business column on a surviving silver row **to a value held by no bronze row for that key** | `L2_SURVIVING_ROW_VALUE_MISMATCH` |
 | L2.8 reject reasons | Write a reject row with a reason outside the closed set | `L2_UNKNOWN_REJECT_REASON` |
 | L3.D2 dim matches silver | Change a tracked column in silver, not in gold | `SCD_OVERWRITE_INSTEAD_OF_VERSION` |
 | L3.F2 fanout | Duplicate a dimension key so the join multiplies | `L3_FANOUT_EXCEEDED` |

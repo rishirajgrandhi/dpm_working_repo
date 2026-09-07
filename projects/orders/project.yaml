@@ -1,0 +1,78 @@
+# The ~50 hand-written lines (05 §1). Nobody hand-edits the other files in v1 — the
+# onboarding wizard collects this one, the agent proposes the rest, and the app opens a PR.
+project: orders
+
+owner:
+  team: "@data-platform"
+  slack_channel: "#dpl-orders-alerts"
+  shadow_channel: "#dpl-orders-shadow"
+  jira_project: DPO
+  go_live: false                         # shadow mode: report, file nothing (11 §6)
+
+source:                                  # INPUT 2 — AWS RDS (PostgreSQL 13+, confirmed Q3)
+  kind: postgres
+  host: ${DPHM_RDS_HOST}
+  port: 5432
+  database: orders_prod
+  user: ${DPHM_RDS_USER}
+  password: ${DPHM_RDS_PASSWORD}
+  schemas: [public]
+  read_only: true                        # asserted against pg grants at startup
+  statement_timeout_s: 120
+  max_rows_per_query: 5000000
+
+target:                                  # INPUT 3 — Snowflake (target + state store)
+  kind: snowflake
+  account: ${DPHM_SF_ACCOUNT}
+  user: ${DPHM_SF_USER}
+  authenticator: snowflake_jwt
+  private_key_path: ${DPHM_SF_KEY_PATH}
+  role_reader: DPHM_READER
+  role_writer: DPHM_WRITER
+  warehouse: DPHM_WH                     # dedicated XS warehouse, own cost attribution
+  database: ANALYTICS
+  schemas: [BRONZE, SILVER, GOLD, STAGING, PROD]
+  state_schema: DPHM_STATE
+  scratch_schema: DPHM_SCRATCH
+  query_timeout_s: 300
+
+repo:                                    # INPUT 1 — git
+  url: git@github.com:acme/orders-pipeline.git
+  branch: main
+  auth_env: DPHM_GIT_TOKEN
+  paths:
+    transforms: [sql/transforms, dbt/models]
+    ddl: [sql/ddl, migrations]
+    orchestration: [dags]
+  codeowners: .github/CODEOWNERS
+
+batch:                                   # A4 — the completed-load signal
+  strategy: control_table
+  control_table: ANALYTICS.PROD.ETL_BATCH_LOG
+  batch_id_column: BATCH_ID
+  status_column: STATUS
+  completed_value: SUCCESS
+  completed_at_column: COMPLETED_AT
+  lookback_hours: 48
+
+defaults:
+  numeric_scale: 6
+  float_abs_tolerance: 1.0e-9
+  float_rel_tolerance: 1.0e-9
+  timestamp_granularity: second
+  null_equals_null: true                 # IS NOT DISTINCT FROM semantics
+  string_trim: false
+  string_case_fold: false
+
+budgets:
+  lane_a_warehouse_seconds_per_run: 900
+  lane_b_usd_per_run: 5.00
+  lane_b_rds_seconds_per_run: 600
+  llm_usd_per_run: 2.00
+
+llm:
+  provider: anthropic
+  model: claude-sonnet-5
+  model_escalated: claude-opus-5         # grain + business-rule authoring
+  temperature: 0
+  max_retries: 3

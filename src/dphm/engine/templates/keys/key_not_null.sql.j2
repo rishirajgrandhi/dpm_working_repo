@@ -1,0 +1,11 @@
+-- No NULL in any key column. Cheap, and catches load truncation.
+select
+    object_construct({% for k in grain %}'{{ k }}', {{ k }}{{ "," if not loop.last }}{% endfor %}) as failing_key,
+    'KEY_IS_NULL' as violation_code,
+    object_construct(
+        {% for k in grain %}'{{ k }}_is_null', {{ k }} is null{{ "," if not loop.last }}{% endfor %}
+    ) as detail
+from {{ table }}
+where {{ scope_predicate }}
+  and ({% for k in grain %}{{ k }} is null{{ " or " if not loop.last }}{% endfor %})
+limit {{ sample_limit }}

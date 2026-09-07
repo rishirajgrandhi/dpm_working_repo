@@ -1,0 +1,15 @@
+-- L3.F5: every dimension key resolves to the version valid AT THE EVENT TIME.
+-- This is what makes it different from a plain FK check.
+select
+    object_construct('{{ fact_key }}', f.{{ fact_key }}) as failing_key,
+    'L3_FK_UNRESOLVED_AS_OF' as violation_code,
+    object_construct('{{ fk_column }}', f.{{ fk_column }}, 'event_ts', f.{{ event_ts }}) as detail
+from {{ fact_table }} f
+left join {{ dim_table }} d
+       on f.{{ fk_column }} = d.{{ dim_key }}
+      and f.{{ event_ts }} >= d.{{ valid_from }}
+      and f.{{ event_ts }} <  coalesce(d.{{ valid_to }}, '{{ open_end_sentinel }}'::timestamp_ntz)
+where {{ scope_predicate }}
+  and f.{{ fk_column }} is not null
+  and d.{{ dim_key }} is null
+limit {{ sample_limit }}

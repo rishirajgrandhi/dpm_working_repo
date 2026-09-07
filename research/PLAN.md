@@ -1,5 +1,25 @@
 # Data Pipeline Integrity Agent — Implementation Plan
 
+> **⚠️ SUPERSEDED — historical record only. Do not build from this document.**
+>
+> This was the first-generation plan. It has been replaced in full by
+> [`implementation_v1/`](implementation_v1/00_README.md), which changed the premises materially:
+>
+> | This document | `implementation_v1/` |
+> |---|---|
+> | Intra-Snowflake only (staging vs prod) | **AWS RDS → Snowflake migration**; cross-engine is Lane B |
+> | Typer CLI on cron | **A web app. There is no CLI** (`02` D4) |
+> | Anthropic SDK direct | **LangChain + LangGraph** (`02` D1) |
+> | Row count + checksum | Templated check families, incl. the 11-check SCD suite and the L2 dedup contract |
+> | Jira assigned to the **likely author** (§4.6, §4.7) | Assigned to the **team queue**; the author is only *mentioned* — auto-assignment reads as blame and the evidence is correlational (`11` §3, risk R6) |
+> | No validation of the checks themselves | **Four validation gates**, mutation testing a blocking merge gate (`10`) |
+>
+> The last two rows are reversals of intent, not just elaborations. §4.6/§4.7 below describe
+> behaviour the current design explicitly forbids.
+>
+> What survives from here and is still worth reading: the problem statement (§1), the
+> evidence-before-LLM ordering (§4.4), and the incident-dedup state machine (§4.3).
+
 ## 1. Problem & Goal
 
 Today, source-vs-target parity checks between pipeline stages are built manually and reactively — issues are discovered only after they've already affected the business.

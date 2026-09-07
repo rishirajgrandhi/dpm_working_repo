@@ -1,0 +1,99 @@
+# Module dependency rules from 04 §2. These are the product's trust boundary expressed as
+# import contracts, and CI fails on any violation.
+[importlinter]
+root_package = dphm
+# Required so contract 1 can forbid the EXTERNAL langchain/langgraph packages, which is
+# the contract that matters most (04 rule 1).
+include_external_packages = True
+
+[importlinter:contract:1]
+name = LangChain/LangGraph may be imported ONLY under agents/ (04 rule 1, 03 §7)
+type = forbidden
+source_modules =
+    dphm.api
+    dphm.runtime
+    dphm.config
+    dphm.catalog
+    dphm.repo
+    dphm.engine
+    dphm.parity
+    dphm.state
+    dphm.evidence
+    dphm.reporting
+    dphm.util
+    dphm.warehouse
+forbidden_modules =
+    langchain
+    langchain_core
+    langchain_anthropic
+    langgraph
+
+[importlinter:contract:2]
+name = The deterministic core imports no agent code and no reporters (04 rule 2)
+type = forbidden
+source_modules =
+    dphm.engine
+    dphm.parity
+    dphm.state
+    dphm.catalog
+    dphm.repo
+forbidden_modules =
+    dphm.agents
+    dphm.reporting
+
+[importlinter:contract:3]
+name = reporting/ imports models only — it never queries a warehouse (04 rule 3)
+type = forbidden
+source_modules = dphm.reporting
+forbidden_modules =
+    dphm.engine
+    dphm.parity
+    dphm.catalog
+    dphm.state
+
+[importlinter:contract:4]
+name = api/ submits jobs through runtime/; it never runs warehouse queries inline (04 rule 4)
+type = forbidden
+# DIRECT imports only. The rule is that a request handler must not run warehouse work
+# itself — it submits a job through runtime/. Reaching engine/ transitively VIA runtime
+# is the intended path, not a violation: runtime legitimately renders and executes checks.
+# Without this, the contract forbids api/ from calling runtime/ at all.
+allow_indirect_imports = True
+source_modules = dphm.api
+forbidden_modules =
+    dphm.engine
+    dphm.parity
+    dphm.agents
+
+[importlinter:contract:5]
+name = config/, util/ and warehouse/ are lower layers — they import nothing above (04 §2)
+type = forbidden
+source_modules =
+    dphm.config
+    dphm.util
+    dphm.warehouse
+forbidden_modules =
+    dphm.api
+    dphm.runtime
+    dphm.catalog
+    dphm.repo
+    dphm.engine
+    dphm.parity
+    dphm.state
+    dphm.evidence
+    dphm.agents
+    dphm.reporting
+
+[importlinter:contract:6]
+name = Layered architecture (04 §2)
+type = layers
+layers =
+    dphm.api
+    dphm.runtime
+    dphm.agents
+    dphm.evidence
+    dphm.state
+    dphm.catalog : dphm.repo
+    dphm.warehouse
+    dphm.config : dphm.util
+containers =
