@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { Overview } from "./routes/Overview";
+import { App } from "./App";
 import "./styles.css";
 
 // Polling for lists, SSE for live run progress (12 §7). SSE arrives with runs in M1.
@@ -17,9 +17,7 @@ if (!root) throw new Error("#root not found");
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      {/* The dev project points at the live DPHM_TEST fixture in Snowflake, so every
-          screen shows real state rather than placeholders. */}
-      <Overview project="dev" />
+      <App />
     </QueryClientProvider>
   </React.StrictMode>,
 );

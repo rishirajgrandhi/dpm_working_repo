@@ -1,0 +1,21 @@
+# The single most important file for a useful first run. Audit columns included by
+# mistake make every row look different.
+classification:
+  key:
+  - '*_ID'
+  - '*_KEY'
+  - '*_CODE'
+  audit:
+  - _LOADED_AT
+  - _UPDATED_AT
+  - ETL_*
+  - DW_*
+  - '*_BATCH_ID'
+  - INSERTED_AT
+  - SOURCE_FILE*
+  - _FIVETRAN_*
+  - _AIRBYTE_*
+  derived:
+  - '*_FLAG_DERIVED'
+  - '*_SCORE'
+overrides: {}

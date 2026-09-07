@@ -1,0 +1,64 @@
+# Written by the onboarding wizard. `grain_confirmed_by` must be a real person
+# before any check on a table can activate.
+tables:
+- name: DPHM_TEST.BRONZE.CUSTOMERS
+  table_type: raw
+  grain:
+  - CUSTOMER_ID
+  - SOURCE_ROW_ID
+  grain_confirmed_by: aparandkar@accelerize360.com
+  lane_b: unvalidated
+- name: DPHM_TEST.BRONZE.ORDERS
+  table_type: raw
+  grain:
+  - ORDER_ID
+  - CUSTOMER_ID
+  grain_confirmed_by: aparandkar@accelerize360.com
+  lane_b: unvalidated
+- name: DPHM_TEST.GOLD.DIM_CUSTOMER
+  table_type: scd2
+  grain:
+  - CUSTOMER_ID
+  - VALID_FROM
+  grain_confirmed_by: aparandkar@accelerize360.com
+  lane_b: unvalidated
+  scd2:
+    business_key:
+    - CUSTOMER_ID
+    surrogate_key: CUSTOMER_SK
+    valid_from: VALID_FROM
+    valid_to: VALID_TO
+    is_current: IS_CURRENT
+    tracked_columns:
+    - NAME
+    - SEGMENT
+    - COUNTRY
+    - CREDIT_LIMIT
+    type1_columns: []
+    open_end_sentinel: '9999-12-31'
+- name: DPHM_TEST.GOLD.FCT_ORDER
+  table_type: fact
+  grain:
+  - ORDER_ID
+  grain_confirmed_by: aparandkar@accelerize360.com
+  lane_b: unvalidated
+- name: DPHM_TEST.GOLD.MART_DAILY_REVENUE
+  table_type: mart
+  grain:
+  - ORDER_DATE
+  grain_confirmed_by: aparandkar@accelerize360.com
+  lane_b: unvalidated
+- name: DPHM_TEST.SILVER.CUSTOMERS
+  table_type: raw
+  grain:
+  - CUSTOMER_ID
+  - SOURCE_ROW_ID
+  grain_confirmed_by: aparandkar@accelerize360.com
+  lane_b: unvalidated
+- name: DPHM_TEST.SILVER.ORDERS
+  table_type: raw
+  grain:
+  - ORDER_ID
+  - CUSTOMER_ID
+  grain_confirmed_by: aparandkar@accelerize360.com
+  lane_b: unvalidated

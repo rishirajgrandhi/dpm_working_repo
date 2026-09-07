@@ -18,7 +18,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from dphm import __version__
 from dphm.api import deps
-from dphm.api.routes import diagnostics, projects, runs
+from dphm.api.routes import diagnostics, onboarding, projects, runs
 from dphm.util.logging import configure, get_logger
 
 if TYPE_CHECKING:
@@ -112,6 +112,7 @@ def create_app() -> FastAPI:
     app.include_router(diagnostics.router, prefix="/api/v1")
     app.include_router(projects.router, prefix="/api/v1")
     app.include_router(runs.router, prefix="/api/v1")
+    app.include_router(onboarding.router, prefix="/api/v1")
 
     @app.get("/api/v1/healthz", include_in_schema=False)
     async def healthz() -> dict[str, Any]:

@@ -1,0 +1,51 @@
+# Written by the onboarding wizard. Credentials are NOT here — they live in the
+# per-project secret store and appear below only as ${VAR} references, so the
+# load-time scanner that refuses credential literals still applies.
+project: acme
+owner:
+  team: '@data-platform'
+  slack_channel: '#dpl-alerts'
+  shadow_channel: '#dpl-shadow'
+  jira_project: null
+  go_live: false
+source:
+  kind: postgres
+  host: ${DPHM_ACME_RDS_HOST}
+  port: 5432
+  database: orders_prod
+  user: ${DPHM_ACME_RDS_USER}
+  password: ${DPHM_ACME_RDS_PASSWORD}
+  schemas:
+  - public
+  read_only: true
+  statement_timeout_s: 120
+  max_rows_per_query: 5000000
+target:
+  kind: snowflake
+  account: ${DPHM_ACME_SF_ACCOUNT}
+  user: ${DPHM_ACME_SF_USER}
+  authenticator: snowflake_jwt
+  private_key_path: ${DPHM_ACME_SF_KEY_PATH}
+  role_reader: DPHM_DEV
+  role_writer: DPHM_DEV_WRITER
+  warehouse: DPHM_TEST_WH
+  database: DPHM_TEST
+  schemas:
+  - BRONZE
+  - SILVER
+  - GOLD
+  state_schema: DPHM_STATE
+  scratch_schema: DPHM_SCRATCH
+  query_timeout_s: 300
+repo:
+  url: https://example.invalid/not-configured.git
+  branch: main
+  auth_env: DPHM_ACME_GIT_TOKEN
+  paths:
+    transforms: []
+    ddl: []
+    orchestration: []
+  codeowners: .github/CODEOWNERS
+batch:
+  strategy: hook_only
+  lookback_hours: 48

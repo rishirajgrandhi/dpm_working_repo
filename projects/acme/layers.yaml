@@ -1,0 +1,75 @@
+# Hops inferred from schema names by the wizard. Every contract it proposes
+# is unconfirmed, so nothing it guessed can activate a check.
+layers:
+  bronze:
+    database: DPHM_TEST
+    schema: BRONZE
+  silver:
+    database: DPHM_TEST
+    schema: SILVER
+  gold:
+    database: DPHM_TEST
+    schema: GOLD
+hops:
+- id: l2_customers
+  hop: bronze_to_silver
+  lane: A
+  source: DPHM_TEST.BRONZE.CUSTOMERS
+  target: DPHM_TEST.SILVER.CUSTOMERS
+  relation: dedup_of
+  dedup:
+    key:
+    - CUSTOMER_ID
+    key_confirmed_by: null
+    pick_rule:
+      order_by:
+      - column: SOURCE_UPDATED_AT
+        direction: desc
+        nulls: last
+      - column: SOURCE_ROW_ID
+        direction: desc
+        nulls: last
+      must_be_total: false
+    compare_columns: business
+  declared_losses: []
+  strict_conservation: true
+- id: l2_orders
+  hop: bronze_to_silver
+  lane: A
+  source: DPHM_TEST.BRONZE.ORDERS
+  target: DPHM_TEST.SILVER.ORDERS
+  relation: dedup_of
+  dedup:
+    key:
+    - ORDER_ID
+    key_confirmed_by: null
+    pick_rule:
+      order_by:
+      - column: ORDER_DATE
+        direction: desc
+        nulls: last
+      - column: CUSTOMER_ID
+        direction: desc
+        nulls: last
+      must_be_total: false
+    compare_columns: business
+  declared_losses: []
+  strict_conservation: true
+- id: l3_dim_customer
+  hop: silver_to_gold
+  lane: A
+  source: DPHM_TEST.SILVER.CUSTOMERS
+  target: DPHM_TEST.GOLD.DIM_CUSTOMER
+  key:
+  - CUSTOMER_ID
+  relation: scd2_of
+- id: l3_fct_order
+  hop: silver_to_gold
+  lane: A
+  source: DPHM_TEST.SILVER.ORDERS
+  target: DPHM_TEST.GOLD.FCT_ORDER
+  key:
+  - ORDER_ID
+  relation: conserved
+  fanout_max: 1
+  measures: []

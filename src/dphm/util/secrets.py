@@ -109,7 +109,7 @@ def looks_like_secret(value: str, *, key: str | None = None) -> str | None:
     return None
 
 
-def resolve(value: str, *, where: str = "config") -> str:
+def resolve(value: str, *, where: str = "config", mapping: dict[str, str] | None = None) -> str:
     """Expand `${VAR}` references from the environment.
 
     A missing variable raises. Interpolating an empty string would let the service start
@@ -120,7 +120,7 @@ def resolve(value: str, *, where: str = "config") -> str:
 
     def _sub(match: re.Match[str]) -> str:
         name = match.group(1)
-        env = os.environ.get(name)
+        env = (mapping or os.environ).get(name)
         if env is None:
             missing.append(name)
             return ""

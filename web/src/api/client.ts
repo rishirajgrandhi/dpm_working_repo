@@ -151,27 +151,74 @@ export interface Check {
   activatable: boolean;
 }
 
-async function post<T>(path: string): Promise<T> {
+export interface ConnectionTestResult {
+  ok: boolean;
+  detail: string;
+  remedy: string | null;
+  schemas: string[];
+}
+
+export interface DiscoveredTable {
+  fqn: string;
+  columns: string[];
+  schema_name: string;
+  name: string;
+  kind: string;
+  row_count: number | null;
+  column_count: number;
+  suggested_type: string;
+  suggested_grain: string[];
+  reason: string;
+  already_monitored: boolean;
+}
+
+export interface DiscoveryResult {
+  project: string;
+  tables: DiscoveredTable[];
+  error: string | null;
+}
+
+export interface MonitorTable {
+  fqn: string;
+  columns?: string[];
+  table_type: string;
+  grain: string[];
+  grain_confirmed_by: string | null;
+  scd2_business_key?: string[];
+  scd2_surrogate_key?: string | null;
+  scd2_valid_from?: string | null;
+  scd2_valid_to?: string | null;
+  scd2_is_current?: string | null;
+  scd2_tracked_columns?: string[];
+}
+
+async function post<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: { Accept: "application/json" },
+    headers: body
+      ? { Accept: "application/json", "Content-Type": "application/json" }
+      : { Accept: "application/json" },
     credentials: "same-origin",
+    body: body ? JSON.stringify(body) : undefined,
   });
   if (!response.ok) {
     let detail = response.statusText;
     try {
-      const body = (await response.json()) as { detail?: string };
-      if (body.detail) detail = body.detail;
+      const body = (await response.json()) as { detail?: unknown };
+      if (typeof body.detail === "string") detail = body.detail;
+      else if (body.detail) detail = JSON.stringify(body.detail);
     } catch {
       /* non-JSON error body; keep the status text */
     }
     throw new ApiError(response.status, detail);
   }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
 export const api = {
   listProjects: () => request<ProjectSummary[]>("/projects"),
+  invalidProjects: () => request<Record<string, string>>("/projects/invalid"),
   getProject: (name: string) => request<ProjectDetail>(`/projects/${name}`),
   // Fast by default. `deep` adds the full role-hierarchy grant audit, which takes tens
   // of seconds against a real warehouse, so it is a deliberate action rather than the
@@ -184,4 +231,17 @@ export const api = {
   triggerRun: (name: string) => post<{ run_id: string; counts: Record<string, number> }>(
     `/projects/${name}/runs`,
   ),
+
+  // ── onboarding ──
+  testSnowflake: (body: unknown) =>
+    post<ConnectionTestResult>("/connections/test/snowflake", body),
+  testPostgres: (body: unknown) => post<ConnectionTestResult>("/connections/test/postgres", body),
+  createProject: (body: unknown) =>
+    post<{ project: string; path: string; warnings: string[] }>("/projects", body),
+  discover: (name: string) => request<DiscoveryResult>(`/projects/${name}/discover`),
+  setMonitored: (name: string, body: unknown) =>
+    post<{ tables_written: number; hops_written: number; notes: string[] }>(
+      `/projects/${name}/monitor`,
+      body,
+    ),
 };

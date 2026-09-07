@@ -20,6 +20,7 @@ from typing import Any, TypeVar
 import yaml
 from pydantic import BaseModel, ValidationError
 
+from dphm.config import secrets_store
 from dphm.config.models import (
     CheckDef,
     ColumnRules,
@@ -120,14 +121,18 @@ def scan_for_secret_literals(data: Any, path: Path, *, trail: str = "") -> None:
 # ── interpolation ─────────────────────────────────────────────────────────────
 
 
-def interpolate(data: Any, *, where: str) -> Any:
-    """Expand ${VAR} everywhere in a parsed tree. A missing var raises."""
+def interpolate(data: Any, *, where: str, mapping: dict[str, str] | None = None) -> Any:
+    """Expand ${VAR} everywhere in a parsed tree. A missing var raises.
+
+    `mapping` supplies values from the project's secret store; the environment still
+    wins, so a deployed service using a real secret manager needs no config change.
+    """
     if isinstance(data, dict):
-        return {k: interpolate(v, where=where) for k, v in data.items()}
+        return {k: interpolate(v, where=where, mapping=mapping) for k, v in data.items()}
     if isinstance(data, list):
-        return [interpolate(v, where=where) for v in data]
+        return [interpolate(v, where=where, mapping=mapping) for v in data]
     if isinstance(data, str) and secrets.is_env_reference(data):
-        return secrets.resolve(data, where=where)
+        return secrets.resolve(data, where=where, mapping=mapping)
     return data
 
 
@@ -169,12 +174,16 @@ def load_project(root: Path | str) -> LoadedProject:
     if not root.is_dir():
         raise ConfigError(root, "project directory not found")
 
-    project = _load_one(root / "project.yaml", ProjectConfig, section="project")
-    column_rules = _load_optional(root / "column_rules.yaml", ColumnRules)
-    manifest = _load_optional(root / "manifest.yaml", Manifest)
-    layers = _load_optional(root / "layers.yaml", LayerContract)
-    transforms = _load_optional(root / "transforms.yaml", Transforms)
-    checks = _load_checks(root / "checks")
+    # Credentials typed into the onboarding wizard live in a per-project store outside
+    # the repo. The environment still overrides them.
+    mapping = secrets_store.resolution_mapping(root.name)
+
+    project = _load_one(root / "project.yaml", ProjectConfig, section="project", mapping=mapping)
+    column_rules = _load_optional(root / "column_rules.yaml", ColumnRules, mapping)
+    manifest = _load_optional(root / "manifest.yaml", Manifest, mapping)
+    layers = _load_optional(root / "layers.yaml", LayerContract, mapping)
+    transforms = _load_optional(root / "transforms.yaml", Transforms, mapping)
+    checks = _load_checks(root / "checks", mapping)
 
     loaded = LoadedProject(
         project=project,
@@ -190,10 +199,12 @@ def load_project(root: Path | str) -> LoadedProject:
     return loaded
 
 
-def _load_one(path: Path, model: type[M], *, section: str) -> M:
+def _load_one(
+    path: Path, model: type[M], *, section: str, mapping: dict[str, str] | None = None
+) -> M:
     raw = _read_yaml(path)
     scan_for_secret_literals(raw, path)
-    data = _interpolate_or_raise(raw, path)
+    data = _interpolate_or_raise(raw, path, mapping)
     if not isinstance(data, dict):  # pragma: no cover - _read_yaml guarantees a mapping
         raise ConfigError(path, "expected a mapping at the top level")
     overrides = _env_overrides(section)
@@ -205,19 +216,19 @@ def _load_one(path: Path, model: type[M], *, section: str) -> M:
     return _validate(model, data, path)
 
 
-def _interpolate_or_raise(data: Any, path: Path) -> Any:
+def _interpolate_or_raise(data: Any, path: Path, mapping: dict[str, str] | None = None) -> Any:
     """Interpolate, converting a missing-variable failure into a ConfigError.
 
     Every load-time failure must name the file it came from, or the operator is left
     guessing which of six YAML files referenced the variable.
     """
     try:
-        return interpolate(data, where=str(path))
+        return interpolate(data, where=str(path), mapping=mapping)
     except secrets.SecretResolutionError as exc:
         raise ConfigError(path, str(exc)) from exc
 
 
-def _load_optional(path: Path, model: type[M]) -> M:
+def _load_optional(path: Path, model: type[M], mapping: dict[str, str] | None = None) -> M:
     """A missing optional file yields an empty model, not an error.
 
     An empty manifest is a legitimate pre-onboarding state; a malformed one is not.
@@ -226,20 +237,20 @@ def _load_optional(path: Path, model: type[M]) -> M:
         return model()
     raw = _read_yaml(path)
     scan_for_secret_literals(raw, path)
-    data = _interpolate_or_raise(raw, path)
+    data = _interpolate_or_raise(raw, path, mapping)
     if not isinstance(data, dict):  # pragma: no cover
         raise ConfigError(path, "expected a mapping at the top level")
     return _validate(model, data, path)
 
 
-def _load_checks(checks_dir: Path) -> tuple[CheckDef, ...]:
+def _load_checks(checks_dir: Path, mapping: dict[str, str] | None = None) -> tuple[CheckDef, ...]:
     if not checks_dir.is_dir():
         return ()
     out: list[CheckDef] = []
     for path in sorted(checks_dir.rglob("*.yaml")):
         raw_list = _read_yaml_list(path)
         scan_for_secret_literals(raw_list, path)
-        data = _interpolate_or_raise(raw_list, path)
+        data = _interpolate_or_raise(raw_list, path, mapping)
         for item in data:
             if not isinstance(item, dict):
                 raise ConfigError(path, f"expected a list of check mappings, got {type(item)}")
